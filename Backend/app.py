@@ -1,45 +1,72 @@
-from flask import Flask, render_template, request, jsonify
+from flask import Flask, render_template, request
+from datetime import date
 
-# Indicamos que los templates están en ../templates
-app = Flask(__name__, template_folder='../templates', static_folder='../frontend')
+app = Flask(__name__, template_folder="../Frontend")
 
-# --- Lógica de cálculo ---
-def calcular_indemnizacion(salario_mensual, años_trabajados, meses_trabajados):
-    salario_diario = salario_mensual / 30
-    indemnizacion_anios = salario_diario * 30 * años_trabajados
+def calcular_diferencia(fecha1, fecha2):
+    """Devuelve diferencia en años, meses y días entre dos fechas."""
+    if fecha1 > fecha2:
+        fecha1, fecha2 = fecha2, fecha1
 
-    if meses_trabajados > 3:
-        indemnizacion_fraccion = salario_diario * 30 * (meses_trabajados / 12)
-    else:
-        indemnizacion_fraccion = 0
+    años = fecha2.year - fecha1.year
+    meses = fecha2.month - fecha1.month
+    dias = fecha2.day - fecha1.day
 
-    total_indemnizacion = indemnizacion_anios + indemnizacion_fraccion
+    if dias < 0:
+        meses -= 1
+        mes_anterior = fecha2.month - 1 or 12
+        año_anterior = fecha2.year if fecha2.month != 1 else fecha2.year - 1
+        dias_mes_anterior = (date(año_anterior, mes_anterior % 12 + 1, 1) - date(año_anterior, mes_anterior, 1)).days
+        dias += dias_mes_anterior
 
-    minimo_legal = salario_diario * 15
-    if total_indemnizacion < minimo_legal:
-        total_indemnizacion = minimo_legal
+    if meses < 0:
+        años -= 1
+        meses += 12
 
-    return {
-        "salario_diario": round(salario_diario, 2),
-        "indemnizacion_anios": round(indemnizacion_anios, 2),
-        "indemnizacion_fraccion": round(indemnizacion_fraccion, 2),
-        "total_indemnizacion": round(total_indemnizacion, 2)
-    }
+    return años, meses, dias
 
-# --- Rutas Flask ---
-@app.route('/')
+
+@app.route("/", methods=["GET", "POST"])
 def index():
-    return render_template('index.html')
+    resultado_manual = None
+    resultado_fechas = None
 
-@app.route('/calcular', methods=['POST'])
-def calcular():
-    data = request.get_json()
-    salario = float(data['salario'])
-    años = int(data['años'])
-    meses = int(data['meses'])
-    resultado = calcular_indemnizacion(salario, años, meses)
-    return jsonify(resultado)
+    if request.method == "POST":
+        accion = request.form.get("accion")
 
-if __name__ == '__main__':
+        # --- CÁLCULO MANUAL ---
+        if accion == "manual":
+            try:
+                años = int(request.form.get("años", 0))
+                meses = int(request.form.get("meses", 0))
+                dias = int(request.form.get("dias", 0))
+                salario = float(request.form.get("salario", 0))
+
+                total = (años + meses/12 + dias/365) * salario
+                resultado_manual = f"{años} años, {meses} meses, {dias} días → Indemnización: ${total:,.2f}"
+            except ValueError:
+                resultado_manual = "⚠️ Ingresa valores válidos."
+
+        # --- CÁLCULO POR FECHAS ---
+        elif accion == "fechas":
+            try:
+                inicio = request.form.get("inicio")
+                fin = request.form.get("fin")
+                salario = float(request.form.get("salario_fechas", 0))
+
+                fecha1 = date.fromisoformat(inicio)
+                fecha2 = date.fromisoformat(fin)
+
+                años, meses, dias = calcular_diferencia(fecha1, fecha2)
+                total = (años + meses/12 + dias/365) * salario
+                resultado_fechas = f"{años} años, {meses} meses, {dias} días → Indemnización: ${total:,.2f}"
+            except Exception:
+                resultado_fechas = "⚠️ Ingresa fechas y salario válidos."
+
+    return render_template("index.html",
+                           resultado_manual=resultado_manual,
+                           resultado_fechas=resultado_fechas)
+
+
+if __name__ == "__main__":
     app.run(debug=True)
-
